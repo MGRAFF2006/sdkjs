@@ -901,7 +901,7 @@
 	SmartArtAlgorithm.prototype.checkPresOfCxn = function(presOfNode, contentNodeId, cxnMap, cxnLst) {
 		const presPoint = presOfNode.presPoint;
 		const modelId = presPoint.getModelId();
-		if (cxnMap[contentNodeId][modelId]) {
+		if (cxnMap[contentNodeId] && cxnMap[contentNodeId][modelId]) {
 			delete cxnMap[contentNodeId][modelId];
 		} else {
 			const newCxn = new AscFormat.Cxn();
@@ -1537,7 +1537,7 @@
 	SmartArtDataNode.prototype.getPointType = function () {
 		return this.point.getType();
 	}
-	SmartArtDataNode.prototype.getParentChildLength = function () {
+	SmartArtDataNodeBase.prototype.getParentChildLength = function () {
 		const parent = this.getParent();
 		return parent.childs.length;
 	}
@@ -2769,7 +2769,7 @@
 			const child = childs[i];
 			const shape = child.getShape(false);
 			const newRowWidth = Math.abs(offX - startX) + shape.width + sibWidth;
-			if (newRowWidth > parentWidth && !fAlgDeltaEqual(newRowWidth, parentWidth)) {
+			if (row.shapes.length && newRowWidth > parentWidth && !fAlgDeltaEqual(newRowWidth, parentWidth)) {
 				this.addGridToParentContainer(rows, row, !isPushInCurrentLine);
 				isPushInCurrentLine = this.isPushInCurrentLine(rows.getLength());
 				if (isPushInCurrentLine) {
@@ -2824,7 +2824,7 @@
 			const child = childs[i];
 			const shape = child.getShape(false);
 			const newRowHeight = Math.abs(offY - startY) + shape.height + sibSpacingHeight;
-			if (newRowHeight > parentHeight && !fAlgDeltaEqual(newRowHeight, parentHeight)) {
+			if (column.shapes.length && newRowHeight > parentHeight && !fAlgDeltaEqual(newRowHeight, parentHeight)) {
 				this.addGridToParentContainer(columns, column, !isPushInCurrentLine);
 				isPushInCurrentLine = this.isPushInCurrentLine(columns.getLength());
 				if (isPushInCurrentLine) {
@@ -6636,7 +6636,7 @@ function HierarchyAlgorithm() {
 		const node = this.parentNode;
 		const bodyPr = editorShape.getBodyPr().createDuplicate();
 		const stBulletLvl = this.params[AscFormat.Param_type_stBulletLvl];
-		const firstNodeBodyPr = node.contentNodes[0].point.t.bodyPr;
+		const firstNodeBodyPr = node.contentNodes[0].point.t && node.contentNodes[0].point.t.bodyPr;
 		if (firstNodeBodyPr && typeof firstNodeBodyPr.anchor === "number") {
 			bodyPr.setAnchor(firstNodeBodyPr.anchor);
 		} else if (isParentWithChildren(node.contentNodes) || stBulletLvl === 1) {
@@ -6717,7 +6717,7 @@ function HierarchyAlgorithm() {
 		}
 
 		const bodyPr = editorShape.getBodyPr();
-		const firstNodeBodyPr = node.contentNodes[0].point.t.bodyPr;
+		const firstNodeBodyPr = node.contentNodes[0].point.t && node.contentNodes[0].point.t.bodyPr;
 		if (firstNodeBodyPr && typeof firstNodeBodyPr.anchorCtr === "boolean") {
 			const copyBodyPr = bodyPr.createDuplicate();
 			bodyPr.anchorCtr = firstNodeBodyPr.anchorCtr;
