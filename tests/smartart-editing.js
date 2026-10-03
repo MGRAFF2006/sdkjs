@@ -90,6 +90,11 @@
                 assert(await api.asc_setSmartArtOutline(before.id, edited), 'apply failed');
                 const after = smartart.getEditableOutline();
                 const additions = after.filter(function (node) { return !before.nodes.some(function (item) { return item.id === node.id; }); });
+                const pointMap = smartart.getDataModelFromData().getPtLst().getPtMap();
+                after.filter(function (node) { return node.text === 'New node: ä 中文'; }).forEach(function (node) {
+                    assert(pointMap[node.id].getPrSet().getPhldr() === false, 'edited text still marked as placeholder');
+                    assert(typeof pointMap[node.id].getPhldrT() !== 'boolean', 'placeholder text contains boolean');
+                });
                 if (additions.length) {
                     equal(after.filter(function (node) { return before.nodes.some(function (item) { return item.id === node.id; }); }), before.nodes, 'existing nodes changed');
                     assert(additions.length === 1 && additions[0].text === 'New node: ä 中文', 'new text missing');
@@ -119,6 +124,10 @@
                 const reopened = testProduct === 'pdf' ? new AscPDF.CPdfSmartArt() : new AscFormat.SmartArt();
                 reopened.fromPPTY(reader);
                 equal(reopened.getEditableOutline(), after, 'saved outline changed');
+                const reopenedPoints = reopened.getDataModelFromData().getPtLst().getPtMap();
+                after.filter(function (node) { return node.text === 'New node: ä 中文'; }).forEach(function (node) {
+                    assert(reopenedPoints[node.id].getPrSet().getPhldr() === false, 'saved text reopened as placeholder');
+                });
                 assert(reopened.drawing.spTree.length === newDrawing.spTree.length, 'saved drawing changed');
                 assert(await api.asc_setSmartArtOutline(before.id, before.nodes), 'remove failed');
                 equal(smartart.getEditableOutline(), before.nodes, 'remove changed nodes');

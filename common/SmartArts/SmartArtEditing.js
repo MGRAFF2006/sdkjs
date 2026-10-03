@@ -114,7 +114,7 @@
                         }
                         body.setContent(content);
                     }
-                    point.setPhldrT(false);
+                    if (point.getPrSet()) point.getPrSet().setPhldr(false);
                 }
                 const parentId = parents[node["depth"]].getModelId();
                 let cxn = oldConnections.get(point.getModelId());
