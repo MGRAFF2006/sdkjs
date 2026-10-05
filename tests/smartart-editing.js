@@ -15,7 +15,9 @@
             testProduct === 'slide' ? AscCommon.c_oEditorId.Presentation : AscCommon.c_oEditorId.Word;
         const prototype = testProduct === 'pdf' ? AscCommon.PDFEditorApi.prototype :
             testProduct === 'cell' ? Asc.spreadsheet_api.prototype : Asc.asc_docs_api.prototype;
-        const worksheet = {getId: function () { return 'sheet'; }, getDrawingDocument: function () { return null; }};
+        let protectedSheet = false;
+        const worksheet = {getId: function () { return 'sheet'; }, getDrawingDocument: function () { return null; },
+            getSheetProtection: function () { return protectedSheet; }};
         const pdfDoc = {Viewer: {getPageRotate: function () { return 0; }}, styles: {}};
         if (testProduct === 'pdf') AscPDF.CPDFDoc.prototype.InitDefaultTextListStyles.call(pdfDoc);
         Object.assign(pdfDoc, {AddToRedraw: function () {}, SetNeedUpdateSearch: function () {}, SetNeedUpdateTarget: function () {}, GetDrawingDocument: function () { return null; }});
@@ -157,6 +159,62 @@
             assert(context.getImageData(10, 10, 1, 1).data[3] > 0, 'preview draw produced no pixels');
         }
         controller.selectObject(process);
+        const plain = api.asc_getSmartArtOutline();
+        const rich = plain.nodes.map(function (node, i) { return Object.assign({}, node, {text: i ? node.text : 'Formatted\nSecond'}); });
+        assert(await api.asc_setSmartArtOutline(plain.id, rich), 'format fixture failed');
+        const richId = rich[0].id;
+        function formattedShape(smartart = process) {
+            return smartart.drawing.spTree.find(function (shape) {
+                const content = shape.getDocContent && shape.getDocContent();
+                return content && content.GetText({}).includes('Formatted');
+            });
+        }
+        const formatted = formattedShape();
+        const formattedContent = formatted.getDocContent();
+        const extraParagraph = AscFormat.CreateDocContentFromString('Extra paragraph', null, formatted.txBody).Content[0];
+        formattedContent.AddToContent(1, extraParagraph.Copy(formattedContent, formattedContent.DrawingDocument));
+        const paragraphs = formattedContent.Content;
+        paragraphs[0].Set_Spacing({Line: 2, LineRule: Asc.linerule_Auto}, false);
+        paragraphs[1].Set_Spacing({Line: 3, LineRule: Asc.linerule_Auto}, false);
+        paragraphs[0].Content.find(function (item) { return item.Pr; }).Pr.Bold = true;
+        paragraphs[1].Content.find(function (item) { return item.Pr; }).Pr.Italic = true;
+        formatted.copyTextInfoFromShapeToPoint();
+        const formattedOutline = process.getEditableOutline();
+        function checkFormatting(smartart = process) {
+            const content = formattedShape(smartart).getDocContent().Content;
+            equal(content.map(function (paragraph) { return paragraph.Pr.Spacing.Line; }), [2, 3], 'rendered spacing lost');
+            assert(content[0].Content.some(function (run) { return run.Pr && run.Pr.Bold; }), 'bold formatting lost');
+            assert(content[1].Content.some(function (run) { return run.Pr && run.Pr.Italic; }), 'italic formatting lost');
+            equal(smartart.getDataModelFromData().getPtLst().getPtMap()[richId].getT().content.Content.map(function (paragraph) {
+                return paragraph.Pr.Spacing.Line;
+            }), [2, 3], 'model spacing lost');
+        }
+        assert(await api.asc_setSmartArtOutline(plain.id, formattedOutline), 'unchanged formatted apply failed');
+        checkFormatting();
+        changes.length = 0;
+        assert(await api.asc_setSmartArtOutline(plain.id, formattedOutline.concat([{text: 'Sibling', depth: 0}])), 'formatted add failed');
+        checkFormatting();
+        const formatAction = changes.slice();
+        history.TurnOff();
+        for (let i = formatAction.length - 1; i >= 0; --i) formatAction[i].Undo();
+        checkFormatting();
+        for (const change of formatAction) change.Redo();
+        checkFormatting();
+        history.TurnOn();
+        const withSibling = process.getEditableOutline();
+        assert(await api.asc_setSmartArtOutline(plain.id, [withSibling[withSibling.length - 1]].concat(withSibling.slice(0, -1))), 'formatted reorder failed');
+        checkFormatting();
+        const formatWriter = new AscCommon.CBinaryFileWriter();
+        formatWriter.StartRecord(0); process.toPPTY(formatWriter); formatWriter.EndRecord();
+        const formatBytes = formatWriter.GetData();
+        const formatReader = new AscCommon.BinaryPPTYLoader();
+        formatReader.stream = new AscCommon.FileStream(formatBytes, formatBytes.length);
+        formatReader.stream.GetUChar();
+        const formatReopened = testProduct === 'pdf' ? new AscPDF.CPdfSmartArt() : new AscFormat.SmartArt();
+        formatReopened.fromPPTY(formatReader);
+        formatReopened.recalcSmartArtConnections();
+        checkFormatting(formatReopened);
+        assert(await api.asc_setSmartArtOutline(plain.id, plain.nodes), 'format fixture restore failed');
         const snapshot = api.asc_getSmartArtOutline();
         const reordered = snapshot.nodes.slice().reverse();
         reordered[1] = Object.assign({}, reordered[1], {depth: 1, text: 'Child', assistant: true});
@@ -164,6 +222,8 @@
         equal(process.getEditableOutline().map(function (node) { return [node.id, node.depth, node.assistant]; }),
             reordered.map(function (node) { return [node.id, node.depth, node.assistant]; }), 'hierarchy failed');
         const unchanged = process.getEditableOutline();
+        const stale = unchanged.map(function (node, i) { return Object.assign({}, node, {text: i ? node.text : 'Old snapshot'}); });
+        assert(!await api.asc_setSmartArtOutline(snapshot.id, stale, stale), 'stale opening snapshot accepted');
         assert(!await api.asc_setSmartArtOutline('stale-selection', reordered), 'stale selection accepted');
         assert(!await api.asc_setSmartArtOutline(snapshot.id, []), 'empty outline accepted');
         assert(!await api.asc_setSmartArtOutline(snapshot.id, [{text: 'bad', depth: 1}]), 'bad hierarchy accepted');
@@ -211,6 +271,43 @@
         fontsReady();
         assert(!await pending, 'protection changed during font loading');
         delete controller.checkSelectedObjectsProtection;
+        if (testProduct === 'cell') {
+            process.setWorksheet(worksheet);
+            process.setProtectionLocked(false);
+            process.drawing.spTree.forEach(function (shape) { shape.setProtectionLockText(false); });
+            let textShape = process.drawing.spTree.find(function (shape) { return shape.getDocContent && shape.getDocContent(); });
+            textShape.setProtectionLockText(true);
+            protectedSheet = true;
+            assert(!process.isProtected() && textShape.isProtectedText(), 'protected text fixture invalid');
+            changes.length = 0;
+            assert(!await api.asc_setSmartArtOutline(snapshot.id, unchanged), 'whole diagram bypassed text lock');
+            controller.selectObject(textShape);
+            assert(!await api.asc_setSmartArtOutline(snapshot.id, unchanged), 'internal selection bypassed text lock');
+            assert(!changes.length, 'text lock rejection created history');
+            controller.selectObject(process);
+            protectedSheet = false;
+            pending = api.asc_setSmartArtOutline(snapshot.id, unchanged);
+            protectedSheet = true;
+            fontsReady();
+            assert(!await pending, 'text protection changed during font loading');
+            protectedSheet = false;
+            const checkLock = api.checkObjectsLock;
+            let lockReady;
+            api.checkObjectsLock = function (ids, callback) { lockReady = callback; };
+            pending = api.asc_setSmartArtOutline(snapshot.id, unchanged);
+            fontsReady();
+            await Promise.resolve();
+            protectedSheet = true;
+            lockReady(true);
+            assert(!await pending, 'text protection changed during lock acquisition');
+            api.checkObjectsLock = checkLock;
+            textShape.setProtectionLockText(false);
+            pending = api.asc_setSmartArtOutline(snapshot.id, unchanged);
+            fontsReady();
+            assert(await pending, 'text-unlocked diagram rejected');
+            assert(process.drawing.spTree.every(function (shape) { return !shape.isProtectedText(); }), 'regeneration lost text unlocks');
+            protectedSheet = false;
+        }
         pending = api.asc_setSmartArtOutline(snapshot.id, unchanged);
         api.collaborativeEditing = {getGlobalLock: function () { return true; }};
         fontsReady();
@@ -283,6 +380,24 @@
             assert(button && !button.disabled, 'button disabled: ' + caption);
             button.click();
         };
+        const remote = unchanged.map(function (node, i) { return Object.assign({}, node, {text: i ? node.text : 'Remote edit'}); });
+        assert(await api.asc_setSmartArtOutline(snapshot.id, remote), 'remote text fixture failed');
+        click('Apply');
+        await new Promise(function (resolve) { setTimeout(resolve, 50); });
+        equal(process.getEditableOutline(), remote, 'dialog overwrote remote text');
+        assert(document.querySelector('dialog'), 'stale dialog closed successfully');
+        click('Cancel');
+        window.OnlyOfficeSmartArtDialog(api);
+        dialog = document.querySelector('dialog');
+        assert(await api.asc_setSmartArtOutline(snapshot.id, remote.concat([{text: 'Remote node', depth: 0}])), 'remote node fixture failed');
+        const remoteAdded = process.getEditableOutline();
+        click('Apply');
+        await new Promise(function (resolve) { setTimeout(resolve, 50); });
+        equal(process.getEditableOutline(), remoteAdded, 'dialog deleted remote node');
+        click('Cancel');
+        assert(await api.asc_setSmartArtOutline(snapshot.id, unchanged), 'remote fixture restore failed');
+        window.OnlyOfficeSmartArtDialog(api);
+        dialog = document.querySelector('dialog');
         click('Add node');
         click('Demote');
         click('Promote');
@@ -365,6 +480,53 @@
         assert(panel.lockedControls.includes(panel.btnEditSmartArt), 'sidebar button missing from locked controls');
         Array.from(document.querySelector('dialog').querySelectorAll('button')).find(function (button) { return button.textContent === 'Cancel'; }).click();
         assert(!document.querySelector('dialog'), 'sidebar dialog did not close');
+        // Exercise the product's actual modal notifications and delegated blur handler.
+        const mainSource = await (await fetch('../../web-apps/apps/' + app + '/main/app/controller/Main.js')).text();
+        const mainHost = {api: api, appOptions: {}, getApplication: function () {
+            return {getController: function () { return {getView: function () { return {getMenu: function () {
+                return {isVisible: function () { return false; }};
+            }}; }}; }};
+        }};
+        const modalStart = mainSource.indexOf("'modal:show':");
+        const modalEnd = mainSource.indexOf('},', mainSource.indexOf("'modal:hide':", modalStart)) + 2;
+        const modalHandlers = new Function('me', 'return ({' + mainSource.slice(modalStart, modalEnd) + '})')(mainHost);
+        const blurPrefix = ".on('blur', 'input, textarea', ";
+        const blurStart = mainSource.indexOf(blurPrefix) + blurPrefix.length;
+        const blurEnd = mainSource.indexOf('}).on(', blurStart) + 1;
+        const blurHandler = new Function('me', 'return ' + mainSource.slice(blurStart, blurEnd))(mainHost);
+        Common.NotificationCenter.on(modalHandlers);
+        $(document.body).on('blur.smartart-regression', 'input, textarea', blurHandler);
+        let keysEnabled = true;
+        const enableKeys = api.asc_enableKeyEvents;
+        api.asc_enableKeyEvents = function (enabled) { keysEnabled = enabled; };
+        window.OnlyOfficeSmartArtDialog(api);
+        dialog = document.querySelector('dialog');
+        assert(Common.Utils.ModalWindow.isVisible() && !keysEnabled, 'modal was not registered');
+        for (const button of Array.from(dialog.querySelectorAll('button')).filter(function (button) { return !button.disabled; })) {
+            dialog.querySelector('textarea').focus();
+            button.focus();
+            assert(!keysEnabled, 'toolbar/footer focus enabled editor keys');
+        }
+        click('Assistant');
+        assert(!keysEnabled, 'render enabled editor keys');
+        const setOutline = api.asc_setSmartArtOutline;
+        api.asc_setSmartArtOutline = async function () { return false; };
+        click('Apply');
+        await new Promise(function (resolve) { setTimeout(resolve, 50); });
+        assert(Common.Utils.ModalWindow.isVisible() && !keysEnabled, 'rejection lost modal state');
+        api.asc_setSmartArtOutline = setOutline;
+        dialog.dispatchEvent(new Event('cancel', {cancelable: true}));
+        assert(!Common.Utils.ModalWindow.isVisible() && keysEnabled, 'Escape did not restore modal state');
+        window.OnlyOfficeSmartArtDialog(api);
+        dialog = document.querySelector('dialog');
+        Common.NotificationCenter.trigger('modal:show');
+        click('Cancel');
+        assert(Common.Utils.ModalWindow.isVisible() && !keysEnabled, 'closing enabled keys under another modal');
+        Common.NotificationCenter.trigger('modal:hide');
+        assert(!Common.Utils.ModalWindow.isVisible() && keysEnabled, 'nested modal cleanup was unbalanced');
+        Common.NotificationCenter.off(modalHandlers);
+        $(document.body).off('blur.smartart-regression');
+        api.asc_enableKeyEvents = enableKeys;
         assert(!testErrors.length, testErrors.join('\n'));
         results.push({name: 'API, hierarchy, permissions, shared dialog and real sidebar', passed: true});
     } catch (error) {

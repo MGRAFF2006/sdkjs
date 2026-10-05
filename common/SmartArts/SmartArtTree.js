@@ -6433,7 +6433,9 @@ function HierarchyAlgorithm() {
 							nBulletLevel = Math.min(nBulletLevel + 1, 8);
 							copyParagraph.Set_Ind({FirstLine: -7.9}, false);
 						}
-						copyParagraph.Set_Spacing({Line : 0.9, LineRule : Asc.linerule_Auto}, false);
+						if (!copyParagraph.Pr.Spacing || copyParagraph.Pr.Spacing.Line === undefined) {
+							copyParagraph.Set_Spacing({Line : 0.9, LineRule : Asc.linerule_Auto}, false);
+						}
 						arrParagraphs.push(copyParagraph);
 						for (let j = 1; j < dataContent.Content.length; j += 1) {
 							const paragraph = dataContent.Content[j];
@@ -6442,7 +6444,7 @@ function HierarchyAlgorithm() {
 								copyCurrentParagraph.Set_Ind({Left: copyParagraph.Pr.Ind.Left}, false);
 
 							}
-							if (copyParagraph.Pr.Spacing) {
+							if (copyParagraph.Pr.Spacing && (!copyCurrentParagraph.Pr.Spacing || copyCurrentParagraph.Pr.Spacing.Line === undefined)) {
 								copyCurrentParagraph.Set_Spacing(copyParagraph.Pr.Spacing, false);
 							}
 							arrParagraphs.push(copyCurrentParagraph);

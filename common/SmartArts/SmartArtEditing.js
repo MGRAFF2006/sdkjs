@@ -138,6 +138,11 @@
             copy.smartArtTree.checkDataModel();
             copy.generateDrawingPart(true);
             const drawing = copy.getDrawing();
+            const originalShapes = this.getShapeMap();
+            const replacementShapes = copy.getShapeMap();
+            Object.keys(replacementShapes).forEach(function (id) {
+                if (originalShapes[id]) replacementShapes[id].setFLocksText(originalShapes[id].fLocksText);
+            });
             const displayed = displayedNodes(copy);
             // Some OOXML layouts intentionally cap their shapes or require children.
             // Reject an outline that would silently hide added nodes or existing text.
@@ -196,19 +201,29 @@
         return null;
     }
 
+    function protectedText(smartart, controller) {
+        if (controller.checkSelectedObjectsProtectionText && controller.checkSelectedObjectsProtectionText()) return true;
+        function visit(object) {
+            return object.isProtectedText && object.isProtectedText() || object.spTree && object.spTree.some(visit);
+        }
+        return visit(smartart);
+    }
+
     const api = AscCommon.baseEditorsApi.prototype;
     api["asc_getSmartArtOutline"] = function () {
         const smartart = selectedSmartArt(this);
         const nodes = smartart && smartart.getEditableOutline();
         return nodes ? {"id": smartart.GetId(), "nodes": nodes} : null;
     };
-    api["asc_setSmartArtOutline"] = async function (id, nodes) {
+    api["asc_setSmartArtOutline"] = async function (id, nodes, expectedNodes) {
         const smartart = selectedSmartArt(this);
         const controller = this.getGraphicController();
         if (!this.canEdit() || this.isPdfViewer || !smartart || smartart.GetId() !== id ||
             (this.collaborativeEditing && this.collaborativeEditing.getGlobalLock()) ||
-            (controller.checkSelectedObjectsProtection && controller.checkSelectedObjectsProtection())) return false;
+            (controller.checkSelectedObjectsProtection && controller.checkSelectedObjectsProtection()) ||
+            protectedText(smartart, controller)) return false;
         const before = JSON.stringify(smartart.getEditableOutline());
+        if (expectedNodes !== undefined && before !== JSON.stringify(expectedNodes)) return false;
         if (!smartart.prepareEditableOutline(nodes)) return false;
         await new Promise((resolve) => {
             AscFonts.FontPickerByCharacter.checkText(nodes.map(function (node) { return node["text"]; }).join(""), this, resolve);
@@ -217,7 +232,8 @@
             if (!this.canEdit() || this.isPdfViewer || selectedSmartArt(this) !== smartart ||
                 before !== JSON.stringify(smartart.getEditableOutline()) ||
                 (this.collaborativeEditing && this.collaborativeEditing.getGlobalLock()) ||
-                (controller.checkSelectedObjectsProtection && controller.checkSelectedObjectsProtection())) return false;
+                (controller.checkSelectedObjectsProtection && controller.checkSelectedObjectsProtection()) ||
+                protectedText(smartart, controller)) return false;
             let applied = false;
             controller.checkSelectedObjectsAndCallback(function () {
                 // Build again with history enabled so every new object and relation
