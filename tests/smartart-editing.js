@@ -174,20 +174,27 @@
         const extraParagraph = AscFormat.CreateDocContentFromString('Extra paragraph', null, formatted.txBody).Content[0];
         formattedContent.AddToContent(1, extraParagraph.Copy(formattedContent, formattedContent.DrawingDocument));
         const paragraphs = formattedContent.Content;
-        paragraphs[0].Set_Spacing({Line: 2, LineRule: Asc.linerule_Auto}, false);
+        paragraphs[0].Set_Spacing({Line: 2, LineRule: Asc.linerule_Auto, Before: 4, After: 7}, false);
         paragraphs[1].Set_Spacing({Line: 3, LineRule: Asc.linerule_Auto}, false);
+        const spacingParagraph = AscFormat.CreateDocContentFromString('Spacing-only paragraph', null, formatted.txBody).Content[0];
+        spacingParagraph.Set_Spacing({Before: 12, After: 18}, false);
+        assert(spacingParagraph.Pr.Spacing.Line === undefined, 'spacing fixture has an explicit line value');
+        formattedContent.AddToContent(2, spacingParagraph.Copy(formattedContent, formattedContent.DrawingDocument));
         paragraphs[0].Content.find(function (item) { return item.Pr; }).Pr.Bold = true;
         paragraphs[1].Content.find(function (item) { return item.Pr; }).Pr.Italic = true;
         formatted.copyTextInfoFromShapeToPoint();
         const formattedOutline = process.getEditableOutline();
         function checkFormatting(smartart = process) {
             const content = formattedShape(smartart).getDocContent().Content;
-            equal(content.map(function (paragraph) { return paragraph.Pr.Spacing.Line; }), [2, 3], 'rendered spacing lost');
+            equal(content.slice(0, 2).map(function (paragraph) { return paragraph.Pr.Spacing.Line; }), [2, 3], 'rendered spacing lost');
+            assert(Math.abs(content[2].Pr.Spacing.Before - 12) < 0.01 && Math.abs(content[2].Pr.Spacing.After - 18) < 0.01, 'rendered paragraph spacing lost');
             assert(content[0].Content.some(function (run) { return run.Pr && run.Pr.Bold; }), 'bold formatting lost');
             assert(content[1].Content.some(function (run) { return run.Pr && run.Pr.Italic; }), 'italic formatting lost');
-            equal(smartart.getDataModelFromData().getPtLst().getPtMap()[richId].getT().content.Content.map(function (paragraph) {
+            const modelContent = smartart.getDataModelFromData().getPtLst().getPtMap()[richId].getT().content.Content;
+            equal(modelContent.slice(0, 2).map(function (paragraph) {
                 return paragraph.Pr.Spacing.Line;
             }), [2, 3], 'model spacing lost');
+            assert(Math.abs(modelContent[2].Pr.Spacing.Before - 12) < 0.01 && Math.abs(modelContent[2].Pr.Spacing.After - 18) < 0.01, 'model paragraph spacing lost');
         }
         assert(await api.asc_setSmartArtOutline(plain.id, formattedOutline), 'unchanged formatted apply failed');
         checkFormatting();

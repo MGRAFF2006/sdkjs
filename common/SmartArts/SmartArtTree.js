@@ -6445,7 +6445,9 @@ function HierarchyAlgorithm() {
 
 							}
 							if (copyParagraph.Pr.Spacing && (!copyCurrentParagraph.Pr.Spacing || copyCurrentParagraph.Pr.Spacing.Line === undefined)) {
-								copyCurrentParagraph.Set_Spacing(copyParagraph.Pr.Spacing, false);
+								const spacing = copyParagraph.Pr.Spacing.Copy();
+								if (copyCurrentParagraph.Pr.Spacing) spacing.Merge(copyCurrentParagraph.Pr.Spacing);
+								copyCurrentParagraph.Set_Spacing(spacing, false);
 							}
 							arrParagraphs.push(copyCurrentParagraph);
 						}
